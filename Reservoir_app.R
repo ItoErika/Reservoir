@@ -42,7 +42,6 @@ Connection <- dbConnect(Driver, dbname = Credentials["database:",], host = Crede
 DeepDiveData<-dbGetQuery(Connection,"SELECT docid, sentid, words FROM nlp_sentences_352")
 
 # Extract columns of interest from DeepDiveData
-GoodCols<-c("docid","sentid","wordidx","words","poses","dep_parents")
 DeepDiveData<-DeepDiveData[,c("docid","sentid","wordidx","words","poses","dep_parents")]
 
 # Remove symbols 
@@ -51,13 +50,16 @@ DeepDiveData[,"poses"]<-gsub("\\{|\\}","",DeepDiveData[,"poses"])
 # Make a substitute for commas so they are counted correctly as elements for future functions
 DeepDiveData[,"words"]<-gsub("\",\"","COMMASUB",DeepDiveData[,"words"])
 DeepDiveData[,"poses"]<-gsub("\",\"","COMMASUB",DeepDiveData[,"poses"])
+# Remove commas from DeepDiveData
+CleanedWords<-gsub(","," ",DeepDiveData[,"words"])
 
-# Download dictionary of unit names from Macrostrat Database
-
+# Download geologic unit names from Macrostrat Database
+# download unit_name data from Macrostrat
 UnitsURL<-paste("https://dev.macrostrat.org/api/units?project_id=1&format=csv&response=long")
 GotURL<-getURL(UnitsURL)
 UnitsFrame<-read.csv(text=GotURL,header=TRUE)
 
+#download strat_name_long data from Macrostrat
 StratNamesURL<-paste("https://dev.macrostrat.org/api/defs/strat_names?all&format=csv")
 GotURL<-getURL(StratNamesURL)
 StratNamesFrame<-read.csv(text=GotURL,header=TRUE)
@@ -66,15 +68,15 @@ StratNamesFrame<-read.csv(text=GotURL,header=TRUE)
 UnitsFrameNoOverlap<-UnitsFrame[,!(names(UnitsFrame) %in% names(StratNamesFrame))]
 UnitsFrame<-UnitsFrame[,c(colnames(UnitsFrameNoOverlap),"strat_name_id")]
 
+# Merge the data from UnitsFrame to StratNamesFrame by strat_name_id
 Units<-merge(x = StratNamesFrame, y = UnitsFrame, by = "strat_name_id", all.x = TRUE)
 Units<-Units[,c("strat_name_id","strat_name_long","strat_name","unit_id","unit_name","col_id","t_age","b_age","max_thick","min_thick","lith")]
 Units<-na.omit(Units)
 
-# Add a column of mean thickness
+# Add a column of mean thickness to Units 
 Units$mean_thick<-apply(Units,1,function(row) mean(row["max_thick"]:row["min_thick"]))
 
 # Make two dictionaries: one of long strat names and one of short strat names
-
 # make a matrix of long and short units only. 
 LongShortUnits<-Units[,c("strat_name_long","strat_name")]
 # remove duplicate rows
@@ -83,9 +85,6 @@ LongShortUnits<-unique(LongShortUnits)
 # Create dictionaries
 LongUnitDictionary<-as.character(LongShortUnits[,"strat_name_long"])
 ShortUnitDictionary<-as.character(LongShortUnits[,"strat_name"])
-    
-# Remove commas from DeepDiveData
-CleanedWords<-gsub(","," ",DeepDiveData[,"words"])
 
 # Search for the long unit names in CleanedWords
 Start<-print(Sys.time())
