@@ -9,7 +9,7 @@ library("data.table")
 #Driver <- dbDriver("PostgreSQL") # Establish database driver
 #Connection <- dbConnect(Driver, dbname = "labuser", host = "localhost", port = 5432, user = "labuser")
 
-#DeepDiveData<-dbGetQuery(Connection,"SELECT * FROM reservoir.aquifersentences_nlp352_master")
+#DeepDiveData<-dbGetQuery(Connection,"SELECT docid, sentid, words FROM reservoir.aquifersentences_nlp352_master")
 
 # Load DeepDiveData 
 DeepDiveData<- fread("~/Documents/DeepDive/Reservoir/R/DeepDiveData.csv")
