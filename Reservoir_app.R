@@ -41,15 +41,10 @@ Connection <- dbConnect(Driver, dbname = Credentials["database:",], host = Crede
 # Make SQL query
 DeepDiveData<-dbGetQuery(Connection,"SELECT docid, sentid, words FROM nlp_sentences_352")
 
-# Extract columns of interest from DeepDiveData
-DeepDiveData<-DeepDiveData[,c("docid","sentid","wordidx","words","poses","dep_parents")]
-
 # Remove symbols 
 DeepDiveData[,"words"]<-gsub("\\{|\\}","",DeepDiveData[,"words"])
-DeepDiveData[,"poses"]<-gsub("\\{|\\}","",DeepDiveData[,"poses"])
 # Make a substitute for commas so they are counted correctly as elements for future functions
 DeepDiveData[,"words"]<-gsub("\",\"","COMMASUB",DeepDiveData[,"words"])
-DeepDiveData[,"poses"]<-gsub("\",\"","COMMASUB",DeepDiveData[,"poses"])
 # Remove commas from DeepDiveData
 CleanedWords<-gsub(","," ",DeepDiveData[,"words"])
 
@@ -94,37 +89,49 @@ End<-print(Sys.time())
 # Create a matrix of unit hits locations with corresponding unit names
 LongUnitHitsLength<-pbsapply(LongUnitHits,length)
 LongUnitNames<-rep(names(LongUnitHits),times=LongUnitHitsLength)
-LongUnitLookUp<-cbind(LongUnitNames,unlist(LongUnitHits))
+LongUnitData<-cbind(LongUnitNames,unlist(LongUnitHits))
 # convert matrix to data frame
-LongUnitLookUp<-as.data.frame(LongUnitLookUp)
+LongUnitData<-as.data.frame(LongUnitData)
 # convert row match location (denotes location in CleanedWords) column to numerical data
-colnames(LongUnitLookUp)[2]<-"MatchLocation"
-LongUnitLookUp[,"MatchLocation"]<-as.numeric(as.character(LongUnitLookUp[,"MatchLocation"]))
+colnames(LongUnitData)[2]<-"MatchLocation"
+LongUnitData[,"MatchLocation"]<-as.numeric(as.character(LongUnitData[,"MatchLocation"]))
 
 # Remove MatchLocation rows which appear more than once (remove sentences in which more than one unit occurs)
-AcceptableHits<-names(table(LongUnitLookUp))[which(table(LongUnitLookUp[,"MatchLocation"])==1)]
-LongHitTable<-subset(LongUnitLookUp,LongUnitLookUp[,"MatchLocation"]%in%AcceptableHits==TRUE)
+# Make a table showing the number of unit names which occur in each DeepDiveData row that we know has at least one unit match
+RowHitsTable<-table(LongUnitData[,"MatchLocation"])
+# Locate and extract rows which contain only one long unit
+# Remember that the names of RowHitsTable correspond to rows within CleanedWords
+SingleHits<-as.numeric(names(RowHitsTable)[which((RowHitsTable)==1)])    
+# Subset LongUnitData to get dataframe of Cleaned Words rows and associated single hit long unit names
+SingleHitData<-subset(LongUnitData,LongUnitData[,"MatchLocation"]%in%SingleHits==TRUE)
+# Create a column of sentences from CleanedWords and bind it to SingleHitData
+Sentence<-CleanedWords[SingleHitData[,"MatchLocation"]]
+SingleHitData<-cbind(SingleHitData,Sentence)   
 
 # Locate documents in which matches occurred for each respective strat_name_long
-
 # Unlist the row location data for each element(unit) in LongUnitHits
 MatchRowList<-lapply(LongUnitHits,function(x) unlist(x))
 # Extract docid data associated with each row in MatchRowList
-MatchDocList<-lapply(MatchRowList,function(x) DeepDiveData[x,"docid"]) 
+# Remember the rows in DeepDiveData match the rows in CleanedWords
+MatchDocList<-lapply(MatchRowList,function(x) DeepDiveData[x,"docid"])
+    
+# Search for short unit names in CleanedWords
+Start<-print(Sys.time())
+ShortUnitHits<-parSapply(Cluster,ShortUnitDictionary,function(x,y) grep(x,y,ignore.case=FALSE, perl = TRUE),CleanedWords)
+End<-print(Sys.time())
 
-# Find sentences within documents that have long unit names (MatchDocList) that also contain the word "aquifer"
+# Run a search on documents which contain long unit names (MatchDocList)
+# Use a function to locate sentences within those documents which contain the word "aquifer" and a short unit name.
 # Note that this does not sub out spaces for commas, because we are doing a single word search    
 findPairs<-function(DeepDiveData,MatchDocList,ShortUnitHits,Word="aquifer") {
     FinalVector<-vector("logical",length=length(MatchDocList))
     names(FinalVector)<-names(MatchDocList)
-    progbar<-txtProgressBar(min=0,max=length(FinalVector),style=3)
     for (i in 1:length(FinalVector)) {
         Temp<-DeepDiveData[ShortUnitHits[[i]],]
         DocSubset<-subset(Temp,Temp[,"docid"]%in%MatchDocList[[i]]==TRUE)
         FinalVector[i]<-length(grep(Word,DocSubset[,"words"],ignore.case=TRUE))
         setTxtProgressBar(progbar,i)
         }
-    close(progbar)
     return(FinalVector)
     }
     
