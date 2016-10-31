@@ -41,99 +41,185 @@ Connection <- dbConnect(Driver, dbname = Credentials["database:",], host = Crede
 # Make SQL query
 DeepDiveData<-dbGetQuery(Connection,"SELECT docid, sentid, words FROM nlp_sentences_352")
 
+# RECORD INITIAL STATS
+# INITIAL NUMBER OF DOCUMENTS AND ROWS IN DEEPDIVEDATA: 
+StepOneDescription<-"Initial Data"
+# INITIAL NUMBER OF DOCUMENTS AND ROWS IN DEEPDIVEDATA:
+StepOneDocs<-length((unique(DeepDiveData[,"docid"])))
+StepOneRows<-nrow(DeepDiveData)
+StepOneUnits<-"NA"
+
 # Remove symbols 
 DeepDiveData[,"words"]<-gsub("\\{|\\}","",DeepDiveData[,"words"])
-# Make a substitute for commas so they are counted correctly as elements for future functions
-DeepDiveData[,"words"]<-gsub("\",\"","COMMASUB",DeepDiveData[,"words"])
 # Remove commas from DeepDiveData
 CleanedWords<-gsub(","," ",DeepDiveData[,"words"])
 
-# Download geologic unit names from Macrostrat Database
-# download unit_name data from Macrostrat
-UnitsURL<-paste("https://dev.macrostrat.org/api/units?project_id=1&format=csv&response=long")
-GotURL<-getURL(UnitsURL)
-UnitsFrame<-read.csv(text=GotURL,header=TRUE)
-
+# STEP TWO: Download geologic unit names from Macrostrat Database
 #download strat_name_long data from Macrostrat
 StratNamesURL<-paste("https://dev.macrostrat.org/api/defs/strat_names?all&format=csv")
 GotURL<-getURL(StratNamesURL)
-StratNamesFrame<-read.csv(text=GotURL,header=TRUE)
+UnitsFrame<-read.csv(text=GotURL,header=TRUE)
 
-# Get rid of columns from UnitsFrame that are also in StratNamesFrame so the merge function can run smoothly EXCEPT "strat_name_id"
-UnitsFrameNoOverlap<-UnitsFrame[,!(names(UnitsFrame) %in% names(StratNamesFrame))]
-UnitsFrame<-UnitsFrame[,c(colnames(UnitsFrameNoOverlap),"strat_name_id")]
+# Create unit dictionary
+CandidateUnits<-unique(as.character(UnitsFrame[,"strat_name_long"]))
 
-# Merge the data from UnitsFrame to StratNamesFrame by strat_name_id
-Units<-merge(x = StratNamesFrame, y = UnitsFrame, by = "strat_name_id", all.x = TRUE)
-Units<-Units[,c("strat_name_id","strat_name_long","strat_name","unit_id","unit_name","col_id","t_age","b_age","max_thick","min_thick","lith")]
-Units<-na.omit(Units)
+# RECORD INITIAL STATS
+StepTwoDescription<-"Download Macrostrat unit dictionary"
+# INITIAL NUMBER OF DOCUMENTS AND ROWS IN DEEPDIVEDATA:
+StepTwoDocs<-StepOneDocs
+StepTwoRows<-StepOneRows
+StepOneUnits<-length(CandidateUnits)
 
-# Add a column of mean thickness to Units 
-Units$mean_thick<-apply(Units,1,function(row) mean(row["max_thick"]:row["min_thick"]))
-
-# Make two dictionaries: one of long strat names and one of short strat names
-# make a matrix of long and short units only. 
-LongShortUnits<-Units[,c("strat_name_long","strat_name")]
-# remove duplicate rows
-LongShortUnits<-unique(LongShortUnits)
-
-# Create dictionaries
-LongUnitDictionary<-as.character(LongShortUnits[,"strat_name_long"])
-ShortUnitDictionary<-as.character(LongShortUnits[,"strat_name"])
+# STEP THREE: Search for candidate units in DeepDiveData.
 
 # Search for the long unit names in CleanedWords
-Start<-print(Sys.time())
-LongUnitHits<-parSapply(Cluster,LongUnitDictionary,function(x,y) grep(x,y,ignore.case=FALSE, perl = TRUE),CleanedWords)
-End<-print(Sys.time())
+print(paste("Begin search for candidate units.",Sys.time()))
+UnitHits<-parSapply(Cluster,CandidateUnits,function(x,y) grep(x,y,ignore.case=FALSE, perl = TRUE),CleanedWords)
+print(paste("Finish search for candidate units.",Sys.time()))
 
 # Create a matrix of unit hits locations with corresponding unit names
-LongUnitHitsLength<-pbsapply(LongUnitHits,length)
-LongUnitNames<-rep(names(LongUnitHits),times=LongUnitHitsLength)
-LongUnitData<-cbind(LongUnitNames,unlist(LongUnitHits))
+UnitHitsLength<-sapply(UnitHits,length)
+UnitName<-rep(names(UnitHits),times=UnitHitsLength)
+UnitHitData<-cbind(UnitName,unlist(LongUnitHits))
 # convert matrix to data frame
-LongUnitData<-as.data.frame(LongUnitData)
+UnitHitData<-as.data.frame(LongUnitData)
+# Name column denoting row locations within Cleaned Words
+colnames(UnitHitData)[2]<-"MatchLocation"
 # convert row match location (denotes location in CleanedWords) column to numerical data
-colnames(LongUnitData)[2]<-"MatchLocation"
-LongUnitData[,"MatchLocation"]<-as.numeric(as.character(LongUnitData[,"MatchLocation"]))
+UnitHitData[,"MatchLocation"]<-as.numeric(as.character(UnitHitData[,"MatchLocation"]))
+    
+# RECORD STATS
+StepThreeDescription<-"Search for candidate units in DeepDiveData"
+# NUMBER OR DOCUMENTS IN DEEPDIVEDATA WITH UNIT NAME HITS OF CANDIDATE UNITS FOUND IN TUPLES
+StepSixDocs<-length(unique(DeepDiveData[UnitHitData[,"MatchLocation"],"docid"]))
+# NUMBER OF ROWS IN DEEPDIVEDATA WITH CANDIDATE UNIT HITS
+StepSixRows<-length(unique(UnitHitData[,"MatchLocation"]))
+# NUMBER OF CANDIDATE UNITS FOUND IN TUPLES MATCHED IN SUBSETDEEPDIVE
+StepSixUnits<-length(unique(names(UnitHits[which(sapply(UnitHits,length)>0)])))   
 
-# Remove MatchLocation rows which appear more than once (remove sentences in which more than one unit occurs)
+# STEP FOUR: Eliminate rows/sentences from DeepDiveData which contain more than one candidate unit name
 # Make a table showing the number of unit names which occur in each DeepDiveData row that we know has at least one unit match
-RowHitsTable<-table(LongUnitData[,"MatchLocation"])
+RowHitsTable<-table(UnitHitData[,"MatchLocation"])
 # Locate and extract rows which contain only one long unit
 # Remember that the names of RowHitsTable correspond to rows within CleanedWords
 SingleHits<-as.numeric(names(RowHitsTable)[which((RowHitsTable)==1)])    
 # Subset LongUnitData to get dataframe of Cleaned Words rows and associated single hit long unit names
-SingleHitData<-subset(LongUnitData,LongUnitData[,"MatchLocation"]%in%SingleHits==TRUE)
+SingleHitData<-subset(UnitHitData,UnitHitData[,"MatchLocation"]%in%SingleHits==TRUE)
 # Create a column of sentences from CleanedWords and bind it to SingleHitData
 Sentence<-CleanedWords[SingleHitData[,"MatchLocation"]]
 SingleHitData<-cbind(SingleHitData,Sentence)   
+    
+# RECORD STATS
+StepFourDescription<-"Eliminate sentences with more than one candidate unit name" 
+# NUMBER OF DOCUMENTS OF INTEREST AFTER NARROWING DOWN TO ROWS WITH ONLY ONE CANDIDATE UNIT
+StepFourDocs<-length(unique(DeepDiveData[SingleHitData[,"MatchLocation"],"docid"]))
+# NUMBER OF ROWS (SENTENCES) IN SUBSETDEEPDIVE WITH UNIT NAME HITS OF CANDIDATE UNITS AFTER REMOVING SENTENCES WHICH CONTAIN MORE THAN ONE CANDIDATE UNIT NAME
+StepFourRows<-length(unique(SingleHitData[,"MatchLocation"]))
+# NUMBER OF UNIT MATCHES AFTER NARROWING DOWN TO ROWS WITH ONLY ONE CANDIDATE UNIT
+StepFourUnits<-length(unique(SingleHitData[,"UnitName"]))  
+    
+# STEP 5: Eliminate rows/sentences that are more than 350 characters in length.
+# Find the character length for each character string in SingleHitData sentences
+Chars<-sapply(SingleHitData[,"Sentence"], function (x) nchar(as.character(x)))
+# bind the number of characters for each sentence to UnitData
+UnitData<-cbind(SingleHitData,Chars)
+# Locate the rows which have UnitData sentences with less than or equal to 350 characters
+ShortSents<-which(SingleHitData[,"Chars"]<=350)
+UnitDataCut<-SingleHitData[ShortSents,]    
+    
+# Locate the rows which have UnitData sentences with less than or equal to 350 characters
+ShortSents<-which(UnitData[,"Chars"]<=350)
+UnitDataCut<-UnitData[ShortSents,]    
 
-# Locate documents in which matches occurred for each respective strat_name_long
-# Unlist the row location data for each element(unit) in LongUnitHits
-MatchRowList<-lapply(LongUnitHits,function(x) unlist(x))
-# Extract docid data associated with each row in MatchRowList
-# Remember the rows in DeepDiveData match the rows in CleanedWords
-MatchDocList<-lapply(MatchRowList,function(x) DeepDiveData[x,"docid"])
-    
-# Search for short unit names in CleanedWords
-Start<-print(Sys.time())
-ShortUnitHits<-parSapply(Cluster,ShortUnitDictionary,function(x,y) grep(x,y,ignore.case=FALSE, perl = TRUE),CleanedWords)
-End<-print(Sys.time())
+# RECORD STATS
+StepFiveDescription<-"Eliminate sentences >350 characters in length"
+# NUMBER OF DOCUMENTS OF INTEREST AFTER CUTTING OUT LONG ROWS
+StepFiveDocs<-length(unique(DeepDiveData[UnitDataCut[,"MatchLocation"],"docid"]))
+# NUMBER OF SHORT SENTENCES IN SUBSETDEEPDIVE WITH SINGLE CANDIDATE UNIT HITS AND NO MACROUNITDICTIONARY NAMES
+StepFiveRows<-length(unique(UnitDataCut[,"MatchLocation"]))
+# NUMBER OF UNIT MATCHES AFTER NARROWING DOWN TO ONLY SHORT ROWS 
+StepFiveUnits<-length(unique(UnitDataCut[,"UnitName"]))
 
-# Run a search on documents which contain long unit names (MatchDocList)
-# Use a function to locate sentences within those documents which contain the word "aquifer" and a short unit name.
-# Note that this does not sub out spaces for commas, because we are doing a single word search    
-findPairs<-function(DeepDiveData,MatchDocList,ShortUnitHits,Word="aquifer") {
-    FinalVector<-vector("logical",length=length(MatchDocList))
-    names(FinalVector)<-names(MatchDocList)
-    for (i in 1:length(FinalVector)) {
-        Temp<-DeepDiveData[ShortUnitHits[[i]],]
-        DocSubset<-subset(Temp,Temp[,"docid"]%in%MatchDocList[[i]]==TRUE)
-        FinalVector[i]<-length(grep(Word,DocSubset[,"words"],ignore.case=TRUE))
-        setTxtProgressBar(progbar,i)
-        }
-    return(FinalVector)
-    }
+# STEP 6: Search for words the word "aquifer".
+# Search for the word "aquifer" in UnitDataCut sentences 
+# Record start time
+print(paste("Begin search for unit and aquifer matches.",Sys.time()))
+AquiferHits<-grep("aquifer",UnitDataCut[,"Sentence"], ignore.case=TRUE, perl=TRUE)
+# Record end time
+print(paste("Finish search for unit and aquifer matches.",Sys.time()))
+
+# Subset SingleHitsCut to only rows with aquifer sentences
+AquiferData<-unique(UnitDataCut[AquiferHits,])  
     
-Matches<-findPairs(DeepDiveData[,c("docid","words")],MatchDocList,ShortUnitHits,"aquifer")    
+# RECORD STATS
+StepSixDescription<-"Search for the word 'aquifer'"
+# NUMBER OF DOCUMENTS OF INTEREST 
+StepSixDocs<-length(unique(DeepDiveData[AquiferData[,"MatchLocation"],"docid"]))
+# NUMBER OF UNIQUE ROWS FROM SUBSETDEEPDIVE
+StepSixRows<-length(unique(AquiferData[,"MatchLocation"]))
+# NUMBER OF UNIT MATCHES 
+StepSixUnits<-length(unique(AquiferData[,"UnitName"]))
+
+# STEP 7: Search for and remove words that create noise in the data ("underlying","overlying","overlain", "overlie", "overlies", "underlain", "underlie", and "underlies")
+# Record start time
+print(paste("Begin search for unwanted matches.",Sys.time()))
+# NOTE: removing "underlie" and "overlie" should also get rid of "underlies" and "overlies"
+Overlain<-grep("overlain",AquiferData[,"Sentence"], ignore.case=TRUE, perl=TRUE)
+Overlie<-grep("overlie",AquiferData[,"Sentence"], ignore.case=TRUE, perl=TRUE)
+Overlying<-grep("overlying",AquiferData[,"Sentence"], ignore.case=TRUE, perl=TRUE)
+Underlain<-grep("underlain",AquiferData[,"Sentence"], ignore.case=TRUE, perl=TRUE)
+Underlie<-grep("underlie",AquiferData[,"Sentence"], ignore.case=TRUE, perl=TRUE)
+Underlying<-grep("underlying",AquiferData[,"Sentence"], ignore.case=TRUE, perl=TRUE)
+
+# Combine all of the noisy rows (sentences) into one vector 
+NoisySentences<-c(Overlain,Overlie,Underlain,Underlie,Underlying,Overlying)
     
+# Remove noisy sentences from AquiferData
+ReservoirData<-AquiferData[-NoisySentences,]
+# Record end time
+print(paste("Finish removing unwanted matches.",Sys.time()))
+
+# RECORD STATS
+StepSevenDescription<-"Remove sentences with noisy words"
+# NUMBER OF DOCUMENTS OF INTEREST 
+StepSevenDocs<-length(unique(DeepDiveData[ReservoirData[,"MatchLocation"],"docid"]))
+# NUMBER OF UNIQUE ROWS FROM SUBSETDEEPDIVE
+StepSevenRows<-length(unique(ReservoirData[,"MatchLocation"]))
+# NUMBER OF UNIT MATCHES 
+StepSevenUnits<-length(unique(ReservoirData[,"UnitName"]))
+
+# Create a final data frame for the output
+# Extract the document id data for each match
+DocID<-sapply(ReservoirData[,"MatchLocation"], function(x) DeepDiveData[x,"docid"])
+# Extract the sentence id data for each match
+SentID<-sapply(Reservoir[,"MatchLocation"], function(x) DeepDiveData[x,"sentid"])
+    
+# Remove unnecessary data from the final output data frame
+OutputData<-ReservoirData[,c("UnitName","Sentence")]
+# bind the unit name match, sentence, document id, and sentence id data into a data frame
+OutputData<-cbind(OutputData,DocID,SentID)
+    
+# Return stats table 
+StepDescription<-c(StepOneDescription, StepTwoDescription, StepThreeDescription, StepFourDescription, StepFiveDescription, StepSixDescription, StepSevenDescription)
+NumberDocuments<-c(StepOneDocs, StepTwoDocs, StepThreeDocs, StepFourDocs, StepFiveDocs, StepSixDocs, StepSevenDocs)
+NumberRows<-c(StepOneRows, StepTwoRows, StepThreeRows, StepFourRows, StepFiveRows, StepSixRows, StepSevenRows)
+NumberUnits<-c(StepOneUnits, StepTwoUnits, StepThreeUnits, StepFourUnits, StepFiveUnits, StepSixUnits, StepSevenUnits)
+    
+Stats<-cbind(StepDescription,NumberDocuments,NumberRows,NumberUnits)
+    
+# Stop the cluster
+stopCluster(Cluster)
+    
+print(paste("Writing Outputs",Sys.time()))
+    
+CurrentDirectory<-getwd()
+setwd(paste(CurrentDirectory,"/output",sep=""))
+    
+saveRDS(UnitHitData, "UnitHitData.rds")
+write.csv(UnitHitData, "UnitHitData.csv")
+write.csv(Stats,"Stats.csv",row.names=FALSE)
+saveRDS(OutputData,"Reservoir_OutputData.rds")
+write.csv(OutputData,"Reservoir_OutputData.csv")
+
+    
+print(paste("Complete",Sys.time()))
