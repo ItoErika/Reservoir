@@ -190,7 +190,7 @@ OutputData<-ReservoirData[,c("UnitName","Sentence")]
 OutputData<-cbind(OutputData,DocID,SentID)
     
 # STEP 8: Clean and subset the output. Try to varify that the unit matches are valid by searching for their locations.
-
+print(paste("Begin location check.",Sys.time()))
 # Remove all rows from UnitsFrame with blank "strat_name_long" columns
 UnitsFrame<-UnitsFrame[which(nchar(as.character(UnitsFrame[,"strat_name_long"]))>0),]
 # Subset UnitsFrame so it only includes matched units from ReservoirData
@@ -246,6 +246,8 @@ UnitDocLocation<-cbind(UnitDocLocation, Doc.Location2)
 CheckedOutputData<-UnitOutputData[which(UnitDocLocation[,"Doc.Location2"]%in%LocationHits[,"Doc.Location1"]),]
 # remove duplicate rows of strat name, sentence, docid, and sentid data that were created from the location data merge
 FinalOutputData<-unique(CheckedOutputData[,c("strat_name_long","Sentence","DocID","SentID")])
+                         
+print(paste("Finish location check.",Sys.time()))                        
                          
 # RECORD STATS
 StepEightDescription<-"Validate unit locations"
