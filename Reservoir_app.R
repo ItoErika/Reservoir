@@ -194,7 +194,7 @@ print(paste("Begin location check.",Sys.time()))
 # Remove all rows from UnitsFrame with blank "strat_name_long" columns
 UnitsFrame<-UnitsFrame[which(nchar(as.character(UnitsFrame[,"strat_name_long"]))>0),]
 # Subset UnitsFrame so it only includes matched units from ReservoirData
-CandidatesFrame<-UnitsFrame[which(as.character(UnitsFrame[,"strat_name_long"])%in%OutputData[,"UnitName"],]
+CandidatesFrame<-UnitsFrame[which(as.character(UnitsFrame[,"strat_name_long"])%in%OutputData[,"UnitName"]),]
 # Load col_id, location tuple data
 LocationTuples<-read.csv("LocationTuples.csv")
 # Join the territory names to CandidatesFrame
