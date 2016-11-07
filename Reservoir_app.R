@@ -46,12 +46,14 @@ StepOneUnits<-"NA"
 
 # STEP TWO: Download geologic unit names from Macrostrat Database
 #download strat_name_long data from Macrostrat
-StratNamesURL<-paste("https://dev.macrostrat.org/api/defs/strat_names?all&format=csv")
-GotURL<-getURL(StratNamesURL)
+UnitsURL<-paste("https://dev.macrostrat.org/api/units?project_id=1&response=long&format=csv")
+GotURL<-getURL(UnitsURL)
 UnitsFrame<-read.csv(text=GotURL,header=TRUE)
 
 # Create unit dictionary
 CandidateUnits<-unique(as.character(UnitsFrame[,"strat_name_long"]))
+# Remove blank CandidateUnits element
+CandidateUnits<-CandidateUnits[!(CandidateUnits%in%"")]
 
 # RECORD INITIAL STATS
 StepTwoDescription<-"Download Macrostrat unit dictionary"
@@ -223,7 +225,7 @@ locationSearch<-function(DeepDiveData,Document=UnitOutputData[,"DocID"], locatio
     names(LocationHits)<-unique(UnitOutputData[,"location"])
     Location<-rep(names(LocationHits),times=LocationHitsLength)
     # make a column for each document the location name is found in
-    LocationDocs<-DeepDive[unlist(LocationHits),"docid"]
+    LocationDocs<-SubsetDeepDive[unlist(LocationHits),"docid"]
     # create an output matrix which contains each location and the document in which it appears
     return(cbind(LocationDocs,Location))
     }
