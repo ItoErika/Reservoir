@@ -88,7 +88,7 @@ StepThreeDescription<-"Search for candidate units in DeepDiveData"
 StepThreeDocs<-length(unique(DeepDiveData[UnitHitData[,"MatchLocation"],"docid"]))
 # NUMBER OF ROWS IN DEEPDIVEDATA WITH CANDIDATE UNIT HITS
 StepThreeRows<-length(unique(UnitHitData[,"MatchLocation"]))
-# NUMBER OF CANDIDATE UNITS FOUND IN TUPLES MATCHED IN DEEPDIVE
+# NUMBER OF CANDIDATE UNITS FOUND IN DEEPDIVEDATA
 StepThreeUnits<-length(unique(names(UnitHits[which(sapply(UnitHits,length)>0)])))   
 
 # STEP FOUR: Eliminate rows/sentences from DeepDiveData which contain more than one candidate unit name
